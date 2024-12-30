@@ -1,0 +1,1841 @@
+**Importing Libraries**
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from yellowbrick.cluster import SilhouetteVisualizer
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.colors import ListedColormap
+from matplotlib import colors
+import datetime as dt
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from sklearn.preprocessing import LabelEncoder
+from sklearn.decomposition import PCA
+from sklearn.datasets import make_blobs
+from sklearn.cluster import AgglomerativeClustering
+from yellowbrick.cluster import KElbowVisualizer
+import warnings
+warnings.filterwarnings("ignore")
+pd.set_option("display.max_columns",None)
+pd.set_option("display.max_rows",None)
+palette = ["#a7e149","#e149a7", "#c393f4", "#d683f2", "#dd9e9e", "#fa91aa", "#fc9e9e", "#49e183", "#aa91aa", "#ff93f4"]
+sns.set()
+sns.set_style('whitegrid')
+palette = ['#17bece', '#9467bd', '#2178b4', '#e177c2']
+cmap = ListedColormap(palette)
+pd.options.mode.chained_assignment = None
+pd.set_option('display.max_columns', None)
+import matplotlib
+from plotly.offline import init_notebook_mode, iplot
+init_notebook_mode(connected=True)
+from sklearn import metrics
+import sys
+if not sys.warnoptions:
+    warnings.simplefilter("ignore")
+np.random.seed(42)
+from sklearn.preprocessing import RobustScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score,f1_score,confusion_matrix,classification_report
+import tensorflow as tf
+from tensorflow.keras import Input, Model
+from tensorflow.keras.layers import Dense
+from xgboost import XGBClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+%matplotlib inline
+pd.set_option('display.max_rows', 50)
+
+**Loading the Data**
+
+df = pd.read_csv('/content/drive/MyDrive/marketing_campaign.csv', delimiter = '\t')
+df.head()
+
+**Understanding the Data**
+
+df.columns
+
+**Data Cleaning**
+
+**Missing Values**
+
+df.info()
+
+df= df.dropna()
+print("The total number of data-points after removing the rows with missing values are:", len(df))
+
+def outlier_thresholds(dataframe, variable):
+    quartile1 = dataframe[variable].quantile(0.01)
+    quartile3 = dataframe[variable].quantile(0.75)
+    interquantile_range = quartile3 - quartile1
+    up_limit = quartile3 + 1.5 * interquantile_range
+    low_limit = quartile1 - 1.5 * interquantile_range
+    return low_limit, up_limit
+
+def summary(df):
+    # Create a DataFrame with missing value information
+    missing_info = pd.DataFrame(df.isnull().sum(), columns=['Missing Values'])
+
+
+    # Create a DataFrame with data types
+    data_types = pd.DataFrame(df.dtypes, columns=['Data Type'])
+    # Combine all the information into a single DataFrame
+    summary_df = pd.concat([missing_info, data_types], axis=1)
+
+
+    # Iterate through each column in your DataFrame
+    for column in df.columns:
+          # Check if the column is categorical
+        if pd.api.types.is_object_dtype(df[column]):
+            num_unique_choices = df[column].nunique()
+            # Add the number of unique choices to the summary DataFrame
+            summary_df.loc[column, 'Unique Choices'] = num_unique_choices
+
+        if pd.api.types.is_numeric_dtype(df[column]):
+            # Get the lower and upper thresholds for outliers
+            low_limit, up_limit = outlier_thresholds(df, column)
+
+            # Calculate the range (max - min) for numeric columns
+            summary_df.loc[column, 'min'] = df[column].min()
+            # Calculate the range (max - min) for numeric columns
+            summary_df.loc[column, 'max'] = df[column].max()
+            summary_df.loc[column, 'Mean'] = df[column].mean()
+            # Calculate the median (50% percentile)
+            summary_df.loc[column, 'Median'] = df[column].median()
+            # Calculate the variance
+            summary_df.loc[column, 'Variance'] = df[column].var()
+            # Calculate the standard deviation
+            summary_df.loc[column, 'deviation'] = df[column].std()
+
+
+            # Count the number of outliers in the column
+            num_outliers = len(df[(df[column] < low_limit) | (df[column] > up_limit)])
+            # Add the outlier count to the summary DataFrame
+            summary_df.loc[column, 'Num Outliers'] = num_outliers
+
+
+    return summary_df
+
+summary(df)
+
+print("Values of column 'Marital_Status' are:", df["Marital_Status"].unique())
+print("Values of column 'Education' are:",df["Education"].unique())
+
+display(df[0:5].T)
+
+**Checking correlation between the attributes**
+
+df.head()
+
+df1=df.drop(['Education','Marital_Status','Dt_Customer'],axis=1)
+
+# Check correlation
+
+df_corr = df1.corr()
+f, ax = plt.subplots(figsize=(16, 16))
+# sns.heatmap(df_corr, vmax=.8, square=True)
+# plt.show()
+
+sns.heatmap(df_corr, annot=True, fmt='.2f', cmap='RdYlGn',annot_kws={'size': 10}, ax=ax)
+plt.show()
+
+# Check the Correlation Report
+corr_data = df1.corr()
+corr_data.abs().unstack().sort_values(ascending=False)[24:50:2]
+
+df.duplicated().sum()
+
+print(df.isnull().sum())
+
+# Downloading library to change null data in mean' for 'Income column''
+
+from sklearn.impute import SimpleImputer
+mean_imputer = SimpleImputer(missing_values = np.nan, strategy = 'mean')
+
+df.Income = mean_imputer.fit_transform(df[["Income"]])
+
+# Check the number of null numbers (NaN)
+
+df.isnull().sum()
+
+** Outliers**
+
+# Identify number of columns by type
+
+numerical_features = [feature for feature in df.columns if df[feature].dtypes != 'O']
+discrete_features = [feature for feature in numerical_features if len(df[feature].unique())<25]
+continuous_features = [feature for feature in numerical_features if feature not in discrete_features]
+categorical_features = [feature for feature in df.columns if feature not in numerical_features]
+binary_categorical_features = [feature for feature in categorical_features if len(df[feature].unique()) <=3]
+print("Numerical Features Count {}".format(len(numerical_features)))
+print("Discrete features Count {}".format(len(discrete_features)))
+print("Continuous features Count {}".format(len(continuous_features)))
+print("Categorical features Count {}".format(len(categorical_features)))
+print("Binary Categorical features Count {}".format(len(binary_categorical_features)))
+
+outliers_features = [feature for feature in continuous_features if feature not in ['ID']]
+print(outliers_features)
+
+# Delete outliers
+
+def plot_boxplot(df, continuous_features):
+    # create copy of dataframe
+    data = df[continuous_features].copy()
+    # Create subplots
+    fig, axes = plt.subplots(nrows=len(data.columns)//2, ncols=2,figsize=(15,10))
+    fig.subplots_adjust(hspace=0.7)
+
+    # set fontdict
+    font = {'family': 'serif',
+        'color':  'darkblue',
+        'weight': 'normal',
+        'size': 16,
+        }
+
+    # Generate distplot
+    for ax, feature in zip(axes.flatten(), data.columns):
+        sns.boxplot(data[feature],ax=ax)
+        ax.set_title(f'Analysis of {feature}', fontdict=font)
+    plt.show()
+
+plot_boxplot(df, continuous_features)
+
+# Remove outliers
+
+def remove_outliers(df,outliers_features):
+
+    data = df.copy()
+
+    for feature in data[outliers_features].columns:
+        Q3 = data[feature].quantile(0.75)
+        Q1 = data[feature].quantile(0.25)
+        IQR = Q3 - Q1
+        lower_limit = round(Q1 - 1.5 * IQR)
+        upper_limit = round(Q3 + 1.5 * IQR)
+        data.loc[data[feature]>= upper_limit,feature] = upper_limit
+        data.loc[data[feature]<=lower_limit,feature] = lower_limit
+        data = data[(data[feature] < upper_limit) & (data[feature] > lower_limit)]
+    return data
+
+df = remove_outliers(df,outliers_features)
+
+plot_boxplot(df, outliers_features)
+
+df.describe()
+
+# Checking non-numeric df columns
+
+df.describe(include=['O'])
+
+# check the unique values for 'Education'
+df['Education'].value_counts()
+
+df['Marital_Status'].value_counts()
+
+df.shape
+
+df.describe().T
+
+**Memory usage Reduction**
+
+def reduce_mem_usage(df: pd.DataFrame) -> pd.DataFrame:
+    """Iterate through all the columns of a dataframe and modify the data type
+        to reduce memory usage"""
+
+    start_mem = df.memory_usage().sum() / 1024**2
+    print('Memory usage of DataFrame is {:.2f} MB'.format(start_mem))
+
+    for col in df.columns:
+        col_type = df[col].dtype
+
+        if col_type != object:
+            c_min = df[col].min()
+            c_max = df[col].max()
+            if str(col_type)[:3] == 'int':
+                if c_min > np.iinfo(np.int8).min and c_max < np.iinfo(np.int8).max:
+                    df[col] = df[col].astype(np.int8)
+                elif c_min > np.iinfo(np.int16).min and c_max < np.iinfo(np.int16).max:
+                    df[col] = df[col].astype(np.int16)
+                elif c_min > np.iinfo(np.int32).min and c_max < np.iinfo(np.int32).max:
+                    df[col] = df[col].astype(np.int32)
+                elif c_min > np.iinfo(np.int64).min and c_max < np.iinfo(np.int64).max:
+                    df[col] = df[col].astype(np.int64)
+            else:
+                if c_min > np.finfo(np.float32).min and c_max < np.finfo(np.float32).max:
+                    df[col] = df[col].astype(np.float32)
+                else:
+                    df[col] = df[col].astype(np.float64)
+        else:
+            df[col] = df[col].astype('category')
+
+    end_mem = df.memory_usage().sum() / 1024**2
+    print('Memory usage after optimization is: {:.2f} MB'.format(end_mem))
+    print('Decreased by {:.1f}%'.format(100 * (start_mem - end_mem) / start_mem))
+
+    return df
+
+df= reduce_mem_usage(df)
+
+df.rename(columns = {'MntGoldProds':'MntGoldProducts'}, inplace = True)
+
+df['Income'].skew()
+
+📌   If the skewness is between -0.5 and 0.5, the data is fairly symmetrical. If the skewness is between -1 and – 0.5 or between 0.5 and 1, the data are moderately skewed. If the skewness is less than -1 or greater than 1, the data are highly skewed.
+
+#drop un-needed columns
+df_fin= df.drop(["ID","Z_CostContact", "Z_Revenue"], axis=1)
+#drop rows with missing values
+df_fin= df.dropna()
+
+# Percentage of customers with different education levels
+x = df_fin['Education'].value_counts().sort_values()
+colors = plt.cm.Set2(range(len(x)))
+plt.figure(figsize=(9,9))
+plt.pie(x=x, colors=colors, labels=['2n Cycle', 'Basic', 'Master', 'PhD', 'Graduation'],
+        wedgeprops={ 'width': 0.5},autopct = '%1.1f%%')
+plt.title('Propotion of Education')
+
+**Univariant Analysis**
+
+#CHECKING NUMBER OF UNIQUE CATEGORIES PRESENT IN THE "Year_Birth"
+print("Unique categories present in the Year_Birth:",df_fin["Year_Birth"].value_counts())
+
+#CHECKING NUMBER OF UNIQUE CATEGORIES PRESENT IN THE "Education"
+print("Unique categories present in the Education:",df_fin["Education"].value_counts())
+print('\n')
+
+#VISUALIZING THE "Education"
+df['Education'].value_counts().plot(kind='bar',color = 'turquoise',edgecolor = "black",linewidth = 3)
+plt.title("Frequency Of Each Category in the Education Variable \n",fontsize=24)
+plt.figure(figsize=(8,8))
+
+#CHECKING NUMBER OF UNIQUE CATEGORIES PRESENT IN THE "Marital_Status"
+print("Unique categories present in the Marital_Status:",df['Marital_Status'].value_counts())
+print("\n")
+
+
+#VISUALIZING THE "Marital_Status"
+df['Marital_Status'].value_counts().plot(kind='bar',color = 'turquoise',edgecolor = "black",linewidth = 3)
+plt.title("Frequency Of Each Category in the Marital_Status Variable \n",fontsize=24)
+plt.figure(figsize=(8,8))
+
+#Maximum Income
+df_fin['Income'].max()
+
+#Minimum Income
+df_fin['Income'].min()
+
+#AverageIncome
+df_fin['Income'].mean()
+
+plt.figure(figsize=(8,8))
+sns.distplot(df_fin["Income"],color = 'turquoise')
+plt.show()
+df_fin["Income"].plot.box(figsize=(8,8),color = 'turquoise')
+plt.show()
+
+df_fin['Kidhome'].unique()
+
+df_fin['Teenhome'].unique()
+
+df_fin['MntWines'].unique()
+
+df_fin['MntFruits'].unique()
+
+df_fin['MntMeatProducts'].unique()
+
+df_fin['MntFishProducts'].unique()
+
+df_fin['MntSweetProducts'].unique()
+
+df_fin['MntGoldProducts'].unique()
+
+df_fin['AcceptedCmp1'].unique()
+
+df_fin['AcceptedCmp2'].unique()
+
+df_fin['AcceptedCmp3'].unique()
+
+df_fin['AcceptedCmp4'].unique()
+
+df_fin['AcceptedCmp5'].unique()
+
+df_fin['NumWebPurchases'].unique()
+
+df_fin['NumCatalogPurchases'].unique()
+
+df_fin['NumStorePurchases'].unique()
+
+df_fin['NumDealsPurchases'].unique()
+
+# People
+df_fin[["Response", "Marital_Status"]].groupby(["Marital_Status"], as_index = False).mean().sort_values(by = "Response", ascending = False)
+
+# People
+df_fin[["Response", "Education"]].groupby(["Education"], as_index = False).mean().sort_values(by = "Response", ascending = False)
+
+# People
+df_fin[["Response", "Kidhome"]].groupby(["Kidhome"], as_index = False).mean().sort_values(by = "Response", ascending = False)
+
+# People
+df_fin[["Response", "Teenhome"]].groupby(["Teenhome"], as_index = False).mean().sort_values(by = "Response", ascending = False)
+
+# People
+df_fin[["Response", "Complain"]].groupby("Complain", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Promotion
+df_fin[["Response", "NumDealsPurchases"]].groupby("NumDealsPurchases", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Promotion
+df_fin[["Response", "AcceptedCmp1"]].groupby("AcceptedCmp1", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Promotion
+df_fin[["Response", "AcceptedCmp2"]].groupby("AcceptedCmp2", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Promotion
+df_fin[["Response", "AcceptedCmp3"]].groupby("AcceptedCmp3", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Promotion
+df_fin[["Response", "AcceptedCmp4"]].groupby("AcceptedCmp4", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Promotion
+df_fin[["Response", "AcceptedCmp5"]].groupby("AcceptedCmp5", as_index = False).mean().sort_values("Response", ascending = False)
+
+df_fin[["Response", "NumWebPurchases"]].groupby("NumWebPurchases", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Place
+df_fin[["Response", "NumCatalogPurchases"]].groupby("NumCatalogPurchases", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Place
+df_fin[["Response", "NumStorePurchases"]].groupby("NumStorePurchases", as_index = False).mean().sort_values("Response", ascending = False)
+
+# Place
+df_fin[["Response", "NumWebVisitsMonth"]].groupby("NumWebVisitsMonth", as_index = False).mean().sort_values("Response", ascending = False)
+
+income_null = df_fin[df_fin["Income"].isnull()]
+
+df_fin[df_fin["Income"].isnull()]
+
+promotion = df_fin[["NumDealsPurchases", "AcceptedCmp1", "AcceptedCmp2", "AcceptedCmp3", "AcceptedCmp4", "AcceptedCmp5", "Response"]]
+product = df_fin[["MntWines", "MntFruits", "MntMeatProducts", "MntFishProducts", "MntSweetProducts", "MntGoldProducts", "Response"]]
+place =df_fin[["NumWebPurchases", "NumCatalogPurchases", "NumStorePurchases", "NumWebVisitsMonth", "Response"]]
+
+sns.heatmap(promotion.corr(), fmt = ".2f",annot = True)
+plt.show
+
+sns.heatmap(product.corr(), fmt = ".2f",annot = True)
+plt.show
+
+sns.heatmap(place.corr(), fmt = ".2f",annot = True)
+plt.show
+
+df_fin1=df_fin.drop(['Education','Marital_Status','Dt_Customer',],axis=1)
+
+#View feature correlations with the 'Response' column
+#Note: 'Response' will be the target for predictive modeling
+response_corr_abs = np.abs(df_fin1.corr()['Response']).sort_values(ascending=False)[1:]
+response_corr = df_fin1.corr()['Response'].sort_values(ascending=False)[1:]
+print("Correlation Coefficients for 'Response'")
+print('--------------------------------------------------------')
+print(response_corr)
+
+sns.countplot(x = "Teenhome", data = df_fin)
+plt.xticks(rotation = 60)
+plt.show()
+
+sns.countplot(x = "Kidhome", data = df_fin)
+plt.xticks(rotation = 60)
+plt.show()
+
+sns.countplot(x = "Education", data = df_fin)
+plt.show()
+
+ Education
+
+Possibilities
+a) It may be possible that the one with more education having more chances to have good salary than others.
+b) If he is having good salary then There will be high money flow going in and out, So chances to buy high quality products, high value products are higher.
+c) Usually high educated people want to invest there time more productvely compare to others, mean less time to spend on the groceries. There are chances that number of products purchased per visit are more than others.
+
+Comments
+
+sns.countplot(x = "Marital_Status", data = df_fin)
+plt.show()
+
+I don't know what these labels are :) YOLO, absurd as marital status?
+
+Married earn more money, Together follow them as a 2nd in the list; IF we see only the total amount they earn. However we can ignore Alone, absurd and YOLO ones. It's better to see what the other ones bought.
+
+If we think about the number differences of each group, getting sum of Wine, Meat etc would not be a good idea. I'd prefer means here. First, see table by grouby function.
+
+var = 'Response'
+sns.countplot(x=var, data=df_fin)
+print(df[var].value_counts())
+
+# ahh this plot looks good but, Instead of year of birth if we have age there, It will be great, So base on the age We can comment what
+# is there expenditure capacity, What type of product they prefer
+import seaborn as sns
+from matplotlib import pyplot as plt
+plt.figure(figsize=(18,6))
+sns.set_theme(style = 'darkgrid')
+sns.countplot(x = 'Year_Birth', data = df_fin)
+plt.xticks(rotation=40)
+plt.show()
+
+plt.figure(figsize=(18,6))
+sns.set_theme(style = 'darkgrid')
+sns.countplot(x = [2024]*len(df_fin) - df_fin['Year_Birth'].to_numpy())
+plt.xlabel('Age by 2024')
+plt.xticks(rotation=40)
+plt.show()
+
+Yea , I knew it, this plot make more sense
+Comments on Graph
+Most of our customers are in range of 40-57, Hurray...
+Surprise Surprise In this dataset i got customer with age 79, 80,84.
+
+
+plt.figure(figsize=(18,8))
+sns.set_theme(style = 'darkgrid')
+sns.countplot(x = df_fin['Marital_Status'].to_numpy())
+plt.xticks(rotation=40)
+plt.show()
+
+plt.figure(figsize=(25,15))
+plt.subplot(2,3,1)
+sns.barplot(y=df_fin.Marital_Status,x=df_fin.MntWines)
+plt.title('Amount spent on Wines vs Marital Status')
+plt.xlabel('Amount spent on Wines')
+plt.ylabel('Marital Status')
+plt.subplot(2,3,2)
+sns.barplot(y=df_fin.Marital_Status,x=df_fin.MntFruits)
+plt.title('Amount spent on Fruits vs Marital Status')
+plt.xlabel('Amount spent on Fruits')
+plt.ylabel('Marital Status')
+plt.subplot(2,3,3)
+sns.barplot(y=df_fin.Marital_Status,x=df_fin.MntMeatProducts)
+plt.title('Amount spent on Meat Products vs Marital Status')
+plt.xlabel('Amount spent on Meat Products')
+plt.ylabel('Marital Status')
+plt.subplot(2,3,4)
+sns.barplot(y=df_fin.Marital_Status,x=df_fin.MntFishProducts)
+plt.title('Amount spent on Fish Products vs Marital Status')
+plt.xlabel('Amount spent on Fish Products')
+plt.ylabel('Marital Status')
+plt.subplot(2,3,5)
+sns.barplot(y=df_fin.Marital_Status,x=df_fin.MntSweetProducts)
+plt.title('Amount spent on Sweet Products vs Marital Status')
+plt.xlabel('Amount spent on Sweet Products')
+plt.ylabel('Marital Status')
+plt.subplot(2,3,6)
+sns.barplot(y=df_fin.Marital_Status,x=df_fin.MntGoldProducts)
+plt.title('Amount spent on Gold Products vs Marital Status')
+plt.xlabel('Amount spent on Gold Products')
+plt.ylabel('Marital Status')
+plt.show()
+
+plt.figure(figsize=(20,15))
+plt.subplot(2,3,1)
+sns.barplot(x=df_fin.Response,y=df_fin.MntWines)
+plt.title('Amount spent on Wines vs Response')
+plt.xlabel('Amount spent on Wines')
+plt.ylabel('Response')
+plt.subplot(2,3,2)
+sns.barplot(x=df_fin.Response,y=df_fin.MntFruits)
+plt.title('Amount spent on Fruits vs Response')
+plt.xlabel('Amount spent on Fruits')
+plt.ylabel('Response')
+plt.subplot(2,3,3)
+sns.barplot(x=df_fin.Response,y=df_fin.MntMeatProducts)
+plt.title('Amount spent on Meat Products vs Response')
+plt.xlabel('Amount spent on Meat Products')
+plt.ylabel('Response')
+plt.subplot(2,3,4)
+sns.barplot(x=df_fin.Response,y=df_fin.MntFishProducts)
+plt.title('Amount spent on Fish Products vs Response')
+plt.xlabel('Amount spent on Fish Products')
+plt.ylabel('Response')
+plt.subplot(2,3,5)
+sns.barplot(x=df_fin.Response,y=df_fin.MntSweetProducts)
+plt.title('Amount spent on Sweet Products vs Response')
+plt.xlabel('Amount spent on Sweet Products')
+plt.ylabel('Response')
+plt.subplot(2,3,6)
+sns.barplot(x=df_fin.Response,y=df_fin.MntGoldProducts)
+plt.title('Amount spent on Gold Products vs Response')
+plt.xlabel('Amount spent on Gold Products')
+plt.ylabel('Response')
+plt.show()
+
+plt.figure(figsize=(20,15))
+plt.subplot(2,3,1)
+sns.barplot(x=df_fin.Complain,y=df_fin.MntWines)
+plt.title('Amount spent on Wines vs Customer Complaints')
+plt.xlabel('Amount spent on Wines')
+plt.ylabel('Customer Complaints')
+plt.subplot(2,3,2)
+sns.barplot(x=df_fin.Complain,y=df_fin.MntFruits)
+plt.title('Amount spent on Fruits vs Customer Complaints')
+plt.xlabel('Amount spent on Fruits')
+plt.ylabel('Customer Complaints')
+plt.subplot(2,3,3)
+sns.barplot(x=df_fin.Complain,y=df_fin.MntMeatProducts)
+plt.title('Amount spent on Meat Products vs Customer Complaints')
+plt.xlabel('Amount spent on Meat Products')
+plt.ylabel('Customer Complaints')
+plt.subplot(2,3,4)
+sns.barplot(x=df_fin.Complain,y=df_fin.MntFishProducts)
+plt.title('Amount spent on Fish Products vs Customer Complaints')
+plt.xlabel('Amount spent on Fish Products')
+plt.ylabel('Customer Complaints')
+plt.subplot(2,3,5)
+sns.barplot(x=df_fin.Complain,y=df_fin.MntSweetProducts)
+plt.title('Amount spent on Sweet Products vs Customer Complaints')
+plt.xlabel('Amount spent on Sweet Products')
+plt.ylabel('Customer Complaints')
+plt.subplot(2,3,6)
+sns.barplot(x=df_fin.Complain,y=df_fin.MntGoldProducts)
+plt.title('Amount spent on Gold Products vs Customer Complaints')
+plt.xlabel('Amount spent on Gold Products')
+plt.ylabel('Customer Complaints')
+plt.show()
+
+Conclusions On Objective 1
+Positive response to previous marketing campaigns was the most correlated with a response to the most recent ad campaign. This shows that possibly the customers are very happy with the marketing campaigns and decide to respond to the next campaign. Or this could be showing a certain group of customers that are more influenced by the campaigns.
+Total amount spent on products, especially wines and meats, are very highly correlated with whether the customer responded to the marketing campaign. However, amount spent on gold, fish, sweets and fish were not as correlated. This could be due to the nature of the most recent marketing campaign - perhaps the store was trying to sell meat and wine in the most recent campaign?
+Catalog purchases correlate with response to the current marketing campaign where as in store, online, and deal purchases have very little to no correlation. This may be due to the medium that the marketing campaign was using - maybe it was not displayed in store/online but was in all the catalogs? Another possibility is that those customers who perform catalog purchases are more influenced by the campaigns
+Customers with smaller family size responded better to the marketing campaign. Maybe the customers without family had more money to spend on the products in the campaign or the products in the campaign were for signle customers (like alcohol and party supplies). Without further inforamation on the details on the campaign it is hard to say.
+Customers who recently purchased something are likely to respond to the marketing campaign. This is pretty clear - more recent purchases = probable pattern of shopping at the store
+Income and Total Amount Spent are very correlated. Customers who earn more spend more.
+Finally, of note is Age and Complaining had virtually 0 correlation with response. This shows that the campaign did a good job of catering to all age groups and that customers who complained in the past continued bussiness at the store
+
+var = 'Response'
+sns.countplot(x=var, data=df_fin)
+print(df_fin[var].value_counts())
+
+Plot2 = ['MntWines',	'MntFruits',	'MntMeatProducts',	'MntFishProducts',	'MntSweetProducts','MntGoldProducts','Income']
+
+sns.pairplot(df[Plot2], hue = 'Income')
+
+def categories(d):
+    df_wine2 = pd.DataFrame((d.loc[:,('MntWines', 'MntFruits', 'MntMeatProducts', 'MntFishProducts', 'MntSweetProducts', 'MntGoldProducts')]).melt())
+    fig = px.pie(df_wine2, values='value', names='variable',  width=800, height=400)
+    fig.show()
+
+The main category that customer spends the most money (50%) is a wine category. The second important category is meat.
+
+wine = df_fin.groupby('Education')['MntWines'].mean().reset_index()
+fruits = df_fin.groupby('Education')['MntFruits'].mean().reset_index()
+meat = df_fin.groupby('Education')['MntMeatProducts'].mean().reset_index()
+fish = df_fin.groupby('Education')['MntFishProducts'].mean().reset_index()
+sweet = df_fin.groupby('Education')['MntSweetProducts'].mean().reset_index()
+gold = df_fin.groupby('Education')['MntGoldProducts'].mean().reset_index()
+
+fig, ax = plt.subplots()
+fig.set_figheight(10)
+fig.set_figwidth(10)
+ax.bar(wine['Education'], wine['MntWines'], label='MntWines')
+ax.bar(meat['Education'], meat['MntMeatProducts'],bottom=wine['MntWines'],label='MntMeatProducts')
+ax.bar(fruits['Education'], fruits['MntFruits'],bottom=meat['MntMeatProducts'] + wine['MntWines'],label='MntFruits')
+ax.bar(fish['Education'], fish['MntFishProducts'],bottom=meat['MntMeatProducts'] + wine['MntWines'] + fruits['MntFruits'],label='MntFishProducts')
+ax.bar(sweet['Education'], sweet['MntSweetProducts'],bottom=meat['MntMeatProducts'] + wine['MntWines'] + fruits['MntFruits']+ fish['MntFishProducts'],label='MntSweetProducts')
+ax.bar(gold['Education'], gold['MntGoldProducts'],bottom=meat['MntMeatProducts'] + wine['MntWines'] + fruits['MntFruits']+ fish['MntFishProducts'] + sweet['MntSweetProducts'],label='MntGoldProds')
+
+
+ax.legend()
+
+plt.show()
+
+People with basic education spent much less at the store, so product managers shouls focus their activity primarily on the people with high education. Intriguily, PhD candidates spent the most for wine which is the main business source.
+
+to_plot = ['Income', 'Recency', 'Marital_Status']
+sns.pairplot(df_fin[to_plot], hue='Marital_Status', palette='Set1')
+plt.show()
+
+cont_col=['Income','MntWines','MntFruits','MntMeatProducts','MntFishProducts','MntSweetProducts','MntGoldProducts']
+
+for i in cont_col:
+    plt.figure(figsize=(18,4))
+    plt.subplot(1,2,1)
+    sns.boxplot(x=df_fin[i],data=df_fin)
+    plt.subplot(1,2,2)
+    sns.histplot(x=df_fin[i],data=df_fin)
+    plt.show()
+
+obj = ['Education','Marital_Status']
+
+for i in range(len(obj)):
+    x='Marital_Status'
+    for j in range(1):
+        if obj[i] != x:
+            sns.barplot(x= x,y='Income',hue=obj[i],data=df_fin)
+            sns.set(rc={'figure.figsize':(11,12)})
+            plt.show()
+
+*for* all who do basic income is less
+Income for single is almost equal for 2nCycle,master,PhD less for basic
+income for graduation,masters, PhD is averagely above 40k
+average income for basic is 10k to 20k¶
+
+# Education & Response
+plt.figure(figsize=(15,5))
+plt.subplot(121)
+sns.histplot(data=df_fin, x="Education", hue="Response", multiple="stack", stat="percent")
+
+# Marital_Status & Response
+plt.subplot(122)
+sns.histplot(data=df_fin, x="Marital_Status", hue="Response",stat="percent", multiple="stack")
+plt.show()
+
+From the left figure, we can find that the compaign acceptance rate in high education groups(Master and PhD) are higher than that in low education groups.
+
+From the right plot, we find that the single people tend to say yes to this compaign.
+
+# Kid Home & Response
+plt.figure(figsize=(15,5))
+plt.subplot(121)
+sns.histplot(data=df_fin, x="Kidhome", hue="Response", multiple="stack", stat="percent", discrete=True)
+plt.xticks([0, 1, 2])
+# Teen Home & Response
+plt.subplot(122)
+sns.histplot(data=df_fin, x="Teenhome", hue="Response", multiple="stack", stat="percent", discrete=True)
+plt.xticks([0, 1, 2])
+plt.show()
+
+It seems that customers with no kids and no teens at home are more likely to accept the offer in this campaign than customers with 2 kids but less than customers with one kid.
+
+# Income (by Response/Marital_Status/Education/Kidhome)
+plt.figure(figsize=(15,10))
+plt.subplot(221)
+sns.kdeplot(
+   data=df_fin, x="Income", hue="Response", log_scale= True,
+   fill=True, common_norm=False,
+   alpha=.5, linewidth=0,
+)
+plt.gca().axes.get_yaxis().set_visible(False) # Set y invisible
+plt.xlabel('Income')
+
+# segment by Marital_Status
+plt.subplot(222)
+sns.kdeplot(
+   data=df_fin, x="Income", hue="Marital_Status", log_scale= True,
+   fill=True, common_norm=False, palette="crest",
+   alpha=.5, linewidth=0,
+)
+plt.gca().axes.get_yaxis().set_visible(False)
+
+# segment by Education
+plt.subplot(223)
+sns.kdeplot(
+   data=df_fin, x="Income", hue="Education", log_scale= True,
+   fill=True, common_norm=False, palette="crest",
+   alpha=.5, linewidth=0,
+   )
+plt.gca().axes.get_yaxis().set_visible(False)
+
+# segment by Kidhome
+plt.subplot(224)
+sns.kdeplot(
+   data=df_fin, x="Income", hue="Kidhome", log_scale= True,
+   fill=True, common_norm=False, palette="crest",
+   alpha=.5, linewidth=0,
+)
+plt.gca().axes.get_yaxis().set_visible(False)
+
+The plots about Income VS 4 different Discrete Variables give us some interesting information.¶
+ 1) The high income groups have larger possibility to accept offer in the compaign, as we can see the income distributions of people who say 'yes' and 'no' have a slight difference.
+ 2) There are no clear income difference between people with different maritial status.
+ 3) Customers only with basic education have significantly lower income, while bachelors, masters, and PhDs do not have clear difference in income level.
+ 4) It seems that customers who don't have any kids at home have higher income levels.
+
+**Feature Engineering and bivariant analysis**
+
+#give each feature a smaller set of values
+edu= {"Basic": "Undergraduate", "2n Cycle": "Undergraduate", "Graduation": "Graduate", "Master": "Postgraduate", "PhD": "Postgraduate"}
+df_fin["Education"]= df_fin["Education"].replace(edu)
+
+status= {"YOLO": "Single", "Absurd": "Single", "Alone": "Single", "Widow": "Single", "Divorced": "Single", "Together": "Taken", "Married": "Taken"}
+df_fin["Marital_Status"]= df_fin["Marital_Status"].replace(status)
+
+#new values
+print("Education Values: ", df_fin["Education"].unique())
+print("Marital_Status Values:", df_fin["Marital_Status"].unique())
+
+sns.countplot(df_fin.Marital_Status)
+sns.set(rc={'figure.figsize':(4,4)})
+plt.show()
+
+# Combining different dataframe into a single column to reduce the number of dimension
+
+df_fin['Kids'] = df_fin['Kidhome'] + df_fin['Teenhome']
+
+# Combining different dataframe into a single column to reduce the number of dimension
+
+df_fin['Expenses'] = df_fin['MntWines'] + df_fin['MntFruits'] + df_fin['MntMeatProducts'] + df_fin['MntFishProducts'] + df_fin['MntSweetProducts'] + df_fin['MntGoldProducts']
+df_fin['Expenses'].head(10)
+
+sns.barplot(x = df_fin['Expenses'],y = df_fin['Education']);
+plt.title('Total Expense based on the Education Level');
+
+sns.barplot(x = df_fin['Income'],y = df_fin['Education']);
+plt.title('Total Income based on the Education Level');
+
+df_fin.describe()
+
+#Minimum Expenses
+df_fin['Expenses'].min()
+
+#Maximum Expenses
+df_fin['Expenses'].max()
+
+#Average Expenses
+df_fin['Expenses'].mean()
+
+plt.figure(figsize=(8,8))
+sns.distplot(df_fin["Expenses"],color = 'turquoise')
+plt.show()
+df_fin["Expenses"].plot.box(figsize=(8,8),color='turquoise')
+plt.show()
+
+fig, ax = plt.subplots(1,2, figsize = (20,12))
+sns.histplot(ax = ax[0], data = df_fin.Income, color = "steelblue")
+sns.histplot(ax = ax[1], data = df_fin.Expenses, color = "steelblue")
+
+ax[0].set_title("Income of Customers", fontsize = 22, pad = 50)
+ax[0].set_xlabel("Income [USD $]", fontsize = 20, labelpad = 35)
+
+ax[1].set_title("Spending of Customers", fontsize = 22, pad = 50)
+ax[1].set_xlabel("Amount Spent [USD $]", fontsize = 20, labelpad = 35)
+
+for num in [0,1]:
+    ax[num].grid(axis = "x")
+    ax[num].set(ylabel = None)
+
+df_fin.Income.describe()
+
+df_fin.Expenses.describe()
+
+The income of our customers varies by quite a bit with a normal distribution. The average salary seems to be around 52,000 USD and average spending around 200 USD.
+
+Seems to be a pretty even distribution of old and new customers. This suggests that the company seems to be growing at a steady rate.
+
+pd.crosstab(df_fin['Education'],df_fin['Expenses'],margins=True).style.background_gradient(cmap='Greys')
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How Education impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="Education", y="Expenses", data=df_fin,palette="rainbow")
+
+pd.crosstab(df_fin['Marital_Status'],df_fin['Expenses'],margins=True).style.background_gradient(cmap='Greys')
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How Marital_Status impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="Marital_Status", y="Expenses", data=df_fin,palette="rainbow")
+
+pd.crosstab(df_fin['Kids'],df_fin['Expenses'],margins=True).style.background_gradient(cmap='Greys')
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How Kids impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="Kids", y="Expenses", data=df_fin,palette="rainbow")
+
+df_fin['TotalAcceptedCmp'] = df_fin['AcceptedCmp1'] + df_fin['AcceptedCmp2'] + df_fin['AcceptedCmp3'] + df_fin['AcceptedCmp4'] + df_fin['AcceptedCmp5']++ df_fin['Response']
+
+pd.crosstab(df_fin['TotalAcceptedCmp'],df_fin['Expenses'],margins=True).style.background_gradient(cmap='Greys')
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How TotalAcceptedCmp impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="TotalAcceptedCmp", y="Expenses", data=df_fin,palette="rainbow")
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How TotalAcceptedCmp impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="TotalAcceptedCmp", y="Expenses", data=df_fin,palette="rainbow")
+
+df_fin['NumTotalPurchases'] = df_fin['NumWebPurchases'] + df_fin['NumCatalogPurchases'] + df_fin['NumStorePurchases'] + df_fin['NumDealsPurchases']
+df_fin['NumTotalPurchases'].unique()
+
+#Minimum NumTotalPurchases
+df_fin['NumTotalPurchases'].min()
+
+#Maximum NumTotalPurchases
+df_fin['NumTotalPurchases'].max()
+
+#Mean NumTotalPurchases
+df_fin['NumTotalPurchases'].mean()
+
+pd.crosstab(df_fin['NumTotalPurchases'],df_fin['Expenses'],margins=True).head().style.background_gradient(cmap='Greys')
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How NumTotalPurchases impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="NumTotalPurchases", y="Expenses", data=df_fin,palette="rainbow")
+
+#CHECKING NUMBER OF UNIQUE CATEGORIES PRESENT IN THE "Kids"
+print("Unique categories present in the Kids:",df_fin['Kids'].value_counts())
+print("\n")
+
+#VISUALIZING THE "Kids"
+df_fin['Kids'].value_counts().plot(kind='bar',color = 'turquoise',edgecolor = "black",linewidth = 3)
+plt.title("Frequency Of Each Category in the Kids Variable \n",fontsize=24)
+plt.figure(figsize=(8,8))
+
+#CHECKING NUMBER OF UNIQUE CATEGORIES PRESENT IN THE "TotalAcceptedCmp"
+print("Unique categories present in the TotalAcceptedCmp:",df_fin['TotalAcceptedCmp'].value_counts())
+print("\n")
+
+#VISUALIZING THE "TotalAcceptedCmp"
+df_fin['TotalAcceptedCmp'].value_counts().plot(kind='bar',color = 'turquoise',edgecolor = "black",linewidth = 3)
+plt.title("Frequency Of Each Category in the TotalAcceptedCmp Variable \n",fontsize=24)
+plt.figure(figsize=(8,8))
+
+plt.figure(figsize=(8,8))
+sns.distplot(df_fin["NumTotalPurchases"],color = 'turquoise')
+plt.show()
+df_fin["NumTotalPurchases"].plot.box(figsize=(8,8),color = 'turquoise')
+plt.show()
+
+df_fin.Dt_Customer = pd.to_datetime(df_fin.Dt_Customer, format = "%d-%m-%Y")
+
+df_fin.Dt_Customer
+
+#ADDING A COLUMN "Age" IN THE DATAFRAME....
+df_fin['Age'] = (pd.Timestamp('now').year) - (pd.to_datetime(df_fin['Dt_Customer']).dt.year)
+
+#CHECKING NUMBER OF UNIQUE CATEGORIES PRESENT IN THE "Age"
+print("Unique categories present in the Age:",df_fin['Age'].value_counts())
+print("\n")
+
+
+#VISUALIZING THE "Age"
+df_fin['Age'].value_counts().plot(kind='bar',color = 'turquoise',edgecolor = "black",linewidth = 3)
+plt.title("Frequency Of Each Category in the Age Variable \n",fontsize=24)
+plt.figure(figsize=(8,8))
+
+pd.crosstab(df_fin['Age'],df_fin['Expenses'],margins=True).style.background_gradient(cmap='Greys')
+
+df_fin.head(5).style.background_gradient(cmap='Greys')
+
+sns.set_theme(style="white")
+plt.figure(figsize=(8,8))
+plt.title("How Age impacts on Expenses?",fontsize=24)
+ax = sns.barplot(x="Age", y="Expenses", data=df_fin,palette="rainbow")
+
+print("Total categories in the feature Marital_Status:\n", df_fin["Marital_Status"].value_counts(), "\n")
+print("Total categories in the feature Education:\n", df_fin["Education"].value_counts())
+
+#Feature Engineering
+
+#Feature pertaining parenthood
+df_fin["Is_Parent"] = np.where(df_fin.Kids> 0, 1, 0)
+
+#For clarity
+df_fin=df_fin.rename(columns={"MntWines": "Wines","MntFruits":"Fruits","MntMeatProducts":"Meat","MntFishProducts":"Fish","MntSweetProducts":"Sweets","MntGoldProducts":"Gold"})
+
+#Dropping some of the redundant features
+to_drop = ["Marital_Status"]
+data = df_fin.drop(to_drop, axis=1)
+
+ax = sns.countplot(data = df_fin, x = "Is_Parent", palette = "flare")
+ax.set(xlabel=None,
+      title = "Child Status of Customers")
+
+df_fin.describe()
+
+The above stats show some discrepancies in mean Income and Age and max Income and age.
+
+Do note that max-age is 84 years, As I calculated the age that would be today (i.e. 2024) and the data is old.
+
+I must take a look at the broader view of the data. I will plot some of the selected features.
+
+df_fin[df_fin['Income']>80000]
+
+#Dropping the outliers by setting a cap on Age and income.
+df_fin =df_fin[(df_fin["Age"]<90)]
+df_fin = df_fin[(df_fin["Income"]<80000)]
+print("The total number of data-points after removing the outliers are:", len(df_fin))
+
+df_fin
+
+df_fin1=df_fin.drop(['Education','Marital_Status'],axis=1)
+
+def hist_with_vline(data, column):
+    """This function gets data and column name.
+    Plots a histogram with 100 bins, draws a Vline of the column mean and median"""
+
+    plt.figure(figsize=(12,6))
+    _ = sns.histplot(df[column], bins= 100)
+    plt.title('Histogram of ' + column)
+    miny, y_lim = plt.ylim()
+    plt.text(s = f"Mean  {column} : {df[column].mean():.2f}", x =df[column].mean() * 1.1,  y = y_lim * 0.95, color = 'r')
+    _ =plt.axvline(df[column].mean(), color = 'r')
+    _ = plt.axvline(df[column].median())
+    plt.text(s = f"Median {column} : {df[column].median():.2f}", x=df[column].median() * 1.1, y= y_lim * 0.90, color = 'b')
+
+hist_with_vline(df_fin, 'Income')
+
+The customers earn more than 80k; these ones are outliers also. I'll remove these too.
+
+PS: I can remove outliers by Z score method or Tukey's IQR method; however, I wanted to remove the outliers by certain columns (the ones seemed important to me such as age, income)
+
+df_fin = df_fin[df_fin['Income']<80000]
+
+hist_with_vline(df_fin, 'Income')
+
+Observation
+Most of the customers earn between 20k to 60k.
+
+All the sold products histograms are right skewed. Majority of the customers buys items lower than certain amounts.
+
+On the other hand, Wines are the most sold items (15884) and Meat producs follow with 364k, while the Fruit and Sweet products are the least sold items (6860 and 5878 respectively).
+
+plt.figure(figsize=(8,8))
+sns.barplot(x=df_fin['Marital_Status'], y=df_fin['Expenses'], hue = df_fin["Education"])
+plt.title("Analysis of the Correlation between Marital Status and Expenses with respect to Education")
+plt.show()
+
+Observation: Less number of single customers and very high expenses for single customers.
+
+plt.figure(figsize=(8,8))
+plt.hist("Expenses", data = df_fin[df_fin["Marital_Status"] == "Taken"], alpha = 0.5, label = "Taken")
+plt.hist("Expenses", data = df_fin[df_fin["Marital_Status"] == "Single"], alpha = 0.5, label = "Single")
+plt.title("Distribution of Expenses with respect to Marital Status")
+plt.xlabel("Expenses")
+plt.legend(title = "Marital Status")
+plt.show()
+
+#from numpy.core.fromnumeric import size
+plt.figure(figsize=(8,8))
+plt.hist("Expenses", data = df_fin[df_fin["Education"] == "Postgraduate"], alpha = 0.5, label = "Postgraduate")
+plt.hist("Expenses", data = df_fin[df_fin["Education"] == "Undergraduate"], alpha = 0.5, label = "Undergraduate")
+plt.title("Distribution of Expenses with respect to Education")
+plt.xlabel("Expenses")
+plt.legend(title = "Education")
+plt.show()
+
+plt.figure(figsize=(8,8))
+plt.hist("NumTotalPurchases", data = df_fin[df_fin["Education"] == "Postgraduate"], alpha = 0.5, label = "Postgraduate")
+plt.hist("NumTotalPurchases", data = df_fin[df_fin["Education"] == "Undergraduate"], alpha = 0.5, label = "Undergraduate")
+plt.title("Distribution of Number of Total Purchases with respect to Education")
+plt.xlabel("Number of Total Purchases")
+plt.legend(title = "Education")
+plt.show()
+
+plt.figure(figsize=(8,8))
+plt.hist("Age", data = df_fin[df_fin["Marital_Status"] == "Taken"], alpha = 0.5, label = "Taken")
+plt.hist("Age", data = df_fin[df_fin["Marital_Status"] == "Single"], alpha = 0.5, label = "Single")
+plt.title("Distribution of Age with respect to Marital Status")
+plt.xlabel("Age")
+plt.legend(title = "Marital Status")
+plt.show()
+
+plt.figure(figsize=(8,8))
+plt.hist("Income", data = df_fin[df_fin["Marital_Status"] == "Taken"], alpha = 0.5, label = "Taken")
+plt.hist("Income", data = df_fin[df_fin["Marital_Status"] == "Single"], alpha = 0.5, label = "Single")
+plt.title("Distribution of Income with respect to Marital Status")
+plt.xlabel("Income")
+plt.legend(title = "Marital Status")
+plt.show()
+
+sns.barplot(x = df_fin['Expenses'],y = df_fin['Education']);
+plt.title('Total Expense based on the Education Level');
+plt.show()
+
+sns.barplot(x = df_fin['Income'],y = df_fin['Education']);
+plt.title('Total Income based on the Education Level');
+plt.show()
+
+plt.figure(figsize=(12,6))
+
+_ = sns.scatterplot(x ='Income',y = 'Expenses', data = df_fin)
+_ = plt.title('Income vs Expenses')
+_ = plt.ylabel('Total Items Bought')
+
+There is a linear relation with income and number of items bought.
+
+df_fin.Education.value_counts()
+
+fig, (ax0, ax1 )= plt.subplots(1,2 , figsize=(12,6))
+_= sns.barplot(x = 'Education', y = 'Income', data = df_fin, ax = ax0)
+ax0.set_title('Income According to Education')
+_ = sns.barplot(x = 'Education', y = 'Expenses', data = df_fin, ax=ax1)
+ax1.set_title('Expenses By Custormers by Their Educational Status')
+
+_ = ax0.text(s = f"n :{df_fin.Education.value_counts()[0]}", x = -0.35, y = 10000)
+_ = ax0.text(s = f"n :{df_fin.Education.value_counts()[1]}", x = 0.75, y = 10000)
+_ = ax0.text(s = f"n :{df_fin.Education.value_counts()[2]}", x = 1.75, y = 10000)
+
+Customers with a Postgraduate earn and spend more than any other customers with different educational background. And, not so surprisingly Undergraduate level educated customers earn and spend the least amount of money.
+
+And when we investigate the number of customers in each group, it is wise to investigate what customers buy with different educational backgrounds.
+
+Does Children effect market shopping?
+
+fig, (ax0,ax1) = plt.subplots(1,2,figsize=(12,6), sharex=True)
+_ = sns.barplot(x= df_fin.Kids, y= df_fin.Income, ax=ax0)
+_ = sns.barplot(x= df_fin.Kids, y= df_fin.Expenses, ax=ax1)
+ax0.text(s= f"n:{df_fin[df_fin['Kids']==0]['Kids'].count()}", x = -0.25, y = 20000)
+ax0.text(s= f"n:{df_fin[df_fin['Kids']==1]['Kids'].count()}", x = 0.75, y = 20000)
+ax0.text(s= f"n:{df_fin[df_fin['Kids']==2]['Kids'].count()}", x = 1.75, y = 20000)
+ax0.text(s= f"n:{df_fin[df_fin['Kids']==3]['Kids'].count()}", x = 2.75, y = 20000)
+
+ax1.text(s = f"Mean Sales: \n{df_fin[df_fin['Kids']==0]['Expenses'].mean():.2f}", x = -0.35, y = 50)
+ax1.text(s = f"Mean Sales: \n{df_fin[df_fin['Kids']==1]['Expenses'].mean():.2f}", x = 0.65, y = 50)
+ax1.text(s = f"Mean Sales: \n{df_fin[df_fin['Kids']==2]['Expenses'].mean():.2f}", x = 1.65, y = 50)
+ax1.text(s = f"Mean Sales: \n{df_fin[df_fin['Kids']==3]['Expenses'].mean():.2f}", x = 2.65, y = 50)
+
+plt.figure(figsize=(20, 10))
+ax = sns.histplot(data = df_fin.Income, color = "midnightblue")
+ax.set(title = "Income Distribution of Customers");
+
+plt.xticks( fontsize=16)
+plt.yticks( fontsize=16)
+plt.xlabel('Income', fontsize=20, labelpad=20)
+plt.ylabel('Counts', fontsize=20, labelpad=20);
+
+Insights:
+
+The salaries of the customers have normal distribution with most of the customers earning between 25000 and 85000
+
+Products = df_fin[['Wines', 'Fruits', 'Meat', 'Fish', 'Sweets', 'Gold']]
+product_means = Products.mean(axis=0).sort_values(ascending=False)
+product_means_df = pd.DataFrame(list(product_means.items()), columns=['Products', 'Expenses'])
+
+plt.figure(figsize=(20,10))
+plt.title('Expenses on Products')
+sns.barplot(data=product_means_df, x='Products', y='Expenses');
+plt.xlabel('Products', fontsize=20, labelpad=20)
+plt.ylabel('Expenses', fontsize=20, labelpad=20);
+
+Insights:
+
+Wine and Meats products are the most famous products among the customers
+
+Sweets and Fruits are not being purchased often
+
+childrenspending = df_fin.groupby('Kids')['Expenses'].mean().sort_values(ascending=False)
+childrenspending_df = pd.DataFrame(list(childrenspending.items()), columns=['Kids', 'Expenses'])
+
+plt.figure(figsize=(20,10))
+
+sns.barplot(data=childrenspending_df,  x="Kids", y="Expenses");
+plt.xticks( fontsize=16)
+plt.yticks( fontsize=16)
+plt.xlabel('Kids', fontsize=20, labelpad=20)
+plt.ylabel('Expenses', fontsize=20, labelpad=20);
+
+The families with no children and with one children earn  and spend more than families with children.
+
+# Group the data based on whether there are children and draw a scatter plot matrix
+pairplot = data.loc[:, ['Income', 'Age', 'Expenses', 'Recency', 'Is_Parent']]
+
+sns.pairplot(pairplot, hue='Is_Parent', palette='Set1')
+
+# Group customers with different marital status based on their education level, and compare their differences in income and shopping expenses
+fig, axes = plt.subplots(2, 1, figsize=(14,10))
+sns.barplot(x= 'Marital_Status',y='Income',hue='Education',data=df_fin, ci=0,palette='Set2', ax=axes[0])
+sns.barplot(x= 'Marital_Status',y='Expenses',hue='Education',data=df_fin, ci=0, palette='Set2', ax=axes[1])
+
+# Income and expenditure show a linear growth relationship
+fig, axes = plt.subplots(1, 2, figsize=(14,6))
+sns.scatterplot(y=data['Expenses'], x=data['Income'], ax=axes[0])
+sns.regplot(y='Expenses', x='Income', data=data, ax=axes[1])
+
+# Histogram of overall website customer spending
+plt.figure(figsize=(12,6))
+sns.histplot(data['Expenses'], bins=50, kde=True)
+plt.title('histogram of Expenses')
+
+# Frequency distribution of the number of days since the user's last purchase
+plt.figure(figsize=(12,6))
+sns.histplot(df_fin['Recency'], bins=60)
+
+# Statistics of monthly activity frequency of website users
+plt.figure(figsize=(12,6))
+sns.histplot(df_fin['NumWebVisitsMonth'], bins=50, kde=True)
+plt.title('Monthly activities (5-7)/month')
+
+# Website complaints
+x = df_fin['Complain'].value_counts().sort_values()
+colors = plt.cm.Set2(range(len(x)))
+plt.figure(figsize=(8,8))
+plt.pie(x=x, colors=colors, wedgeprops={ 'width': 0.5},
+        labels=['YES', 'NO'], autopct = '%1.1f%%')
+plt.title('Complain of customer')
+
+# Frequency statistics of 'MntWines', 'MntFishProducts', 'MntFruits', 'MntGoldProds', 'MntMeatProducts', 'MntSweetProducts'  respective sales
+to_histplot = ['Wines', 'Fish', 'Fruits', 'Gold',
+               'Meat', 'Sweets']
+
+fig, axes = plt.subplots(3, 2, sharex=True, sharey=True, figsize=(14, 10))
+axes = axes.flatten()
+
+for col, ax in zip(to_histplot, axes):
+    ax = sns.histplot(data=data, x=col, ax=ax)
+    ax.set_title(f'histogram of {col}')
+
+# Statistics of the frequency of purchases through the three channels of catalogs, stores and websites
+to_histplot = ['NumCatalogPurchases', 'NumStorePurchases', 'NumWebPurchases']
+fig, axes = plt.subplots(1, 3, sharey=True, figsize=(14, 9))
+axes = axes.flatten()
+
+for col, ax in zip(to_histplot, axes):
+    ax = sns.histplot(data=df_fin, x=col, ax=ax)
+    plt.subplots_adjust(hspace = 0.5, wspace = 0.3)
+
+# Create an indicator of the total number of bids accepted by the activity
+acceptedConcat = df_fin[['AcceptedCmp1', 'AcceptedCmp2', 'AcceptedCmp3', 'AcceptedCmp4', 'AcceptedCmp5']]
+acceptedConcat = acceptedConcat.sum()
+
+print('acceptedConcat:\n', acceptedConcat)
+
+# Create an indicator of the total number of bids accepted by the activity
+plt.figure(figsize=(12,6))
+plt.title('accepted the campaings in every attempt')
+sns.barplot(x=acceptedConcat.index, y=acceptedConcat, palette='Set2')
+
+# The relationship between the number of days since the user’s last purchase and whether the offer was accepted in the last activity
+plt.figure(figsize=(12,6))
+plt.title('Recency Vs Acceptance of an offer')
+sns.lineplot(x='Recency', y='Response', data=df_fin)
+
+# Deleting some column to reduce dimension and complexity of model
+
+col_del = ["AcceptedCmp1" , "AcceptedCmp2", "AcceptedCmp3" , "AcceptedCmp4","AcceptedCmp5", "Response","NumWebVisitsMonth", "NumWebPurchases","NumCatalogPurchases","NumStorePurchases","NumDealsPurchases" , "Kidhome", "Teenhome","Marital_Status","Education","Marital_Status","Dt_Customer","Z_CostContact","Z_Revenue"]
+df=df_fin.drop(col_del,axis=1)
+df.head()
+
+df.shape
+
+# Heatmap
+df= df.corr()
+f, ax = plt.subplots(figsize=(12, 12))
+
+sns.heatmap(df, annot=True, fmt='.2f', cmap='RdYlGn',annot_kws={'size': 10}, ax=ax)
+plt.show()
+
+x = df.columns
+for i in x:
+     print(i)
+
+df.describe(include = 'all').style.background_gradient(cmap='Greys')
+
+plt.figure(figsize=(10,8))
+sns.heatmap(df.corr(), annot=True,cmap = 'Greys',linewidths=1)
+
+from sklearn import preprocessing
+from sklearn.preprocessing import LabelEncoder
+
+encoder= LabelEncoder()
+df= df_fin.apply(encoder.fit_transform)
+#hot encode marital_status
+df = pd.get_dummies(df_fin)
+
+#check data
+df.info()
+
+df1=df.drop('Dt_Customer',axis=1)
+
+df1
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import normalize
+scaled_features = StandardScaler().fit_transform(df1.values)
+sf_df = pd.DataFrame(scaled_features, index=df.index, columns=df1.columns)
+temp = df1
+X_std = StandardScaler().fit_transform(temp)
+X = normalize(X_std, norm = 'l2')
+
+df1 = df.fillna(df.mean()) # There are some nan value in input column , so filling value with mean
+
+#Scaled data to be used for reducing the dimensionality
+print("Dataframe to be used for further modelling:")
+df1.head()
+
+df1=df1.drop(['Dt_Customer','Education_Undergraduate','Education_Graduate','Education_Postgraduate','Marital_Status_Taken','Marital_Status_Single'],axis=1)
+
+DIMENSIONALITY REDUCTION
+
+#Initiating PCA to reduce dimentions aka features to 3
+from sklearn.decomposition import PCA
+pca = PCA(n_components=3)
+pca.fit(df1)
+PCA_ds = pd.DataFrame(pca.transform(df1), columns=(["col1","col2", "col3"]))
+PCA_ds.describe().T
+
+#A 3D Projection Of Data In The Reduced Dimension
+x =PCA_ds["col1"]
+y =PCA_ds["col2"]
+z =PCA_ds["col3"]
+#To plot
+fig = plt.figure(figsize=(10,8))
+ax = fig.add_subplot(111, projection="3d")
+ax.scatter(x,y,z, c="maroon", marker="o" )
+ax.set_title("A 3D Projection Of Data In The Reduced Dimension")
+plt.show()
+
+**Elbow Method - Now Lets Find The Number Of Clusters :-**
+
+# Quick examination of elbow method to find numbers of clusters to make.
+print('Elbow Method to determine the number of clusters to be formed:')
+Elbow_M = KElbowVisualizer(KMeans(), k=10)
+Elbow_M.fit(PCA_ds)
+Elbow_M.show()
+
+**Agglomerative**
+
+#Initiating the Agglomerative Clustering model
+AC = AgglomerativeClustering(n_clusters=4)
+# fit model and predict clusters
+yhat_AC = AC.fit_predict(PCA_ds)
+PCA_ds["Clusters"] = yhat_AC
+#Adding the Clusters feature to the orignal dataframe.
+PCA_ds["Clusters"]= yhat_AC
+
+#Plotting the clusters
+fig = plt.figure(figsize=(10,8))
+plt.axes(projection='3d').scatter(PCA_ds["col1"], PCA_ds["col2"], PCA_ds["col3"], c=PCA_ds["Clusters"], marker='o', cmap = 'viridis')
+plt.title("The Plot Of The Clusters by Agglomerative model")
+
+fig = sns.countplot(x=PCA_ds["Clusters"], palette= "Accent")
+fig.set_title("Distribution Of The Clusters")
+plt.show()
+
+From the above plot, it can be clearly seen that cluster 0 is our biggest set of customers closely followed by cluster 1. We can explore what each cluster is spending on for the targeted marketing strategies.
+
+Let us next explore how did our campaigns do in the past.
+
+# Visualize the clustering results according to income and expenditure
+plt.figure(figsize=(12, 6))
+pl = sns.scatterplot(data = sf_df,x=sf_df["Expenses"], y=sf_df["Income"],hue=PCA_ds["Clusters"], palette= 'Set2')
+pl.set_title("Cluster's Profile Based On Income And Spent")
+plt.legend()
+plt.show()
+
+Income and expenditure graph shows cluster mode
+
+Group 0: High expenditure and average income
+Group 1: High consumption and high income
+Group 2: Low expenditure and low income
+Group 3: Low expenditure and High income
+
+
+plt.figure(figsize=(12,6))
+sns.swarmplot(x=PCA_ds["Clusters"], y=sf_df["Expenses"], alpha=0.9, palette= 'Set2' )
+
+# Visualize the total acceptance of activities according to the clustering results
+plt.figure(figsize=(12,6))
+pl = sns.countplot(x=sf_df["TotalAcceptedCmp"],hue=PCA_ds["Clusters"], palette= 'Set2')
+pl.set_title("Count Of Promotion Accepted")
+pl.set_xlabel("Number Of Total Accepted Promotions")
+plt.show()
+
+There has not been an overwhelming response to the campaigns so far. Very few participants overall. Moreover, no one part take in all 5 of them. Perhaps better-targeted and well-planned campaigns are required to boost sales.
+
+Personal = ["Kidhome","Teenhome", "Age", "Kids", "Is_Parent", "Education_Undergraduate","Education_Graduate","Education_Postgraduate","Marital_Status_Single","Marital_Status_Taken"]
+
+for i in Personal:
+    plt.figure()
+    sns.jointplot(x=sf_df[i], y=sf_df["Expenses"], hue =PCA_ds["Clusters"], kind="kde", palette='Set2')
+    plt.show()
+
+**Silhouette Score**
+
+from sklearn.metrics import silhouette_score
+
+silhouette_scores = []
+for i in range(2,10):
+    m1=KMeans(n_clusters=i, random_state=42)
+    c = m1.fit_predict(sf_df)
+    silhouette_scores.append(silhouette_score(sf_df, m1.fit_predict(sf_df)))
+plt.bar(range(2,10), silhouette_scores)
+plt.xlabel('Number of clusters', fontsize = 20)
+plt.ylabel('S(i)', fontsize = 20)
+plt.show()
+
+silhouette_scores
+
+# Getting the maximum value of silhouette score and adding 2 in index because index starts from 2.
+
+sc=max(silhouette_scores)
+number_of_clusters=silhouette_scores.index(sc)+2
+print("Number of Cluster Required is : ", number_of_clusters)
+
+We should chose an amount of clusters for which there are no wide fluctuations in the size of the clusters, represented by the width of each one. Therefore, 4 seems like the right amount of clusters.
+
+
+
+from sklearn.metrics import silhouette_score
+def visualize_silhouette_layer(data):
+    clusters_range = range(2,10)
+    results = []
+
+    for i in clusters_range:
+        km = KMeans(n_clusters=i, random_state=42)
+        cluster_labels = km.fit_predict(sf_df)
+        silhouette_avg = silhouette_score(sf_df, PCA_ds["Clusters"])
+        results.append([i, silhouette_avg])
+
+    result = pd.DataFrame(results, columns=["n_clusters", "silhouette_score"])
+    pivot_km = pd.pivot_table(result, index="n_clusters", values="silhouette_score")
+
+    plt.figure()
+    sns.heatmap(pivot_km, annot=True, linewidths=1, fmt='.3f', cmap='RdYlGn')
+    plt.tight_layout()
+    plt.show()
+
+visualize_silhouette_layer(PCA_ds)
+
+**K-means**
+
+# First let's use KMeans to cluster the data
+agrupador = KMeans(n_clusters = 4)
+agrupador.fit(sf_df)
+labels = agrupador.labels_
+labels
+
+agrupador_kmeans = KMeans(n_clusters = 4)
+labels_kmeans = agrupador_kmeans.fit_predict(sf_df)
+print("Labels K-means: ", labels_kmeans)
+
+# Coefficient Silhouette - Score
+print("The K-means silhouette coefficient is:", silhouette_score(sf_df, labels))
+
+Insight: The silhouette coefficient varies from -1 to 1. If it is positive, we consider it good, and the closer to 1, the better.
+
+# Statistical summary of data by cluster
+
+sf_df["cluster"] = labels
+sf_df.groupby("cluster").describe()
+
+range_n_clusters = [i for i in range(2,10)]
+print(range_n_clusters)
+
+# Categorical variable distribution among clusters
+sns.countplot(data=sf_df, x='cluster', hue='Marital_Status_Taken')
+plt.title('Partner Distribution Among Clusters')
+plt.show()
+
+# Categorical variable distribution among clusters
+sns.countplot(data=sf_df, x='cluster', hue='Education_Undergraduate')
+plt.title('Education_Level Distribution Among Clusters')
+plt.show()
+
+# Categorical variable distribution among clusters
+sns.countplot(data=sf_df, x='cluster', hue='Education_Graduate')
+plt.title('Education_Level Distribution Among Clusters')
+plt.show()
+
+# Categorical variable distribution among clusters
+sns.countplot(data=sf_df, x='cluster', hue='Education_Postgraduate')
+plt.title('Education_Level Distribution Among Clusters')
+plt.show()
+
+# Categorical variable distribution among clusters
+sns.countplot(data=sf_df, x='cluster', hue='Kids')
+plt.title('Kids Distribution Among Clusters')
+plt.show()
+
+Analyzing the data above, we can extract several attempts, such as:
+
+Cluster 0 with highest 'Income' has highest 'Education_Level', highest 'Expenses' and 'TotalAcceptedCmp'
+
+The cluster 2 with the lowest 'Income' has the lowest 'Kids', 'Age', 'Education_Level', 'highest 'Expenses', 'TotalAcceptedCmp' and 'n_clients
+
+The cluster 3 with the second highest 'Income' has high 'Age", high 'Education_Level' and high 'n_clients'
+
+The cluster 1 with the third largest 'Income' has high 'Children' and the highest 'n_customers'
+
+
+
+**Gaussian Mixture Model**
+
+from sklearn.mixture import GaussianMixture
+
+log_like_lst = []
+all_cluster = 15
+
+for k in range(2, all_cluster):
+    gmm = GaussianMixture(n_components = k, random_state = 100).fit(sf_df)
+    log_like = gmm.bic(sf_df)
+    log_like_lst.append(log_like)
+
+elbow = 8
+plt.plot(range(2, all_cluster), log_like_lst, alpha=0.5)
+plt.scatter(elbow, log_like_lst[elbow-2], s=100, c='r', marker='*')
+plt.ylabel('BIC')
+plt.xlabel('K')
+plt.annotate('Optimal Point' ,(elbow, log_like_lst[elbow-1]), xytext=(elbow - 0.5,log_like_lst[elbow-2] + 3000))
+plt.show()
+
+GMM is a soft version of K-means, calculating the sample probability to different clusters. It is also a good clustering algorithm.
+Here, we use BIC to evluate the effectiveness of clustering. When K=8, the BIC score comes to the balanced point (will not show much improvement when increasing K), so we choose 8 as the final clustering result.
+
+# Building & Fitting GMM Models
+gmm = GaussianMixture(n_components = 8, random_state = 100).fit(sf_df)
+labels = gmm.predict(sf_df)
+
+sf_df['Cluster_GMM'] = labels + 1
+
+# Inspect the cluter nums
+sf_df["Cluster_GMM"].value_counts()
+
+gmm = GaussianMixture(n_components = 8, covariance_type = "spherical", random_state = 0, max_iter = 1000).fit(X)
+labels = gmm.fit_predict(sf_df)
+sf_df["Cluster"] = labels
+sf_df.head()
+
+#Initiating the GMM Clustering model
+gmm = GaussianMixture(n_components = 8, covariance_type = 'spherical', max_iter = 3000, random_state = 228).fit(PCA_ds)
+# fit model and predict clusters
+labels = gmm.predict(PCA_ds)
+PCA_ds["Clusters"] = labels
+#Adding the Clusters feature to the orignal dataframe.
+PCA_ds["Clusters"]= labels
+
+#Plotting the clusters
+fig = plt.figure(figsize=(10,8))
+ax = plt.subplot(111, projection='3d', label="bla")
+ax.scatter(PCA_ds["col1"], PCA_ds["col2"], PCA_ds["col3"], s=40, c=PCA_ds["Clusters"], marker='o', cmap = 'viridis' )
+ax.set_title("The Plot Of The Clusters")
+plt.show()
+
+# For every columns in dataset
+for i in sf_df:
+    if i == 'Cluster':
+        continue
+    g = sns.FacetGrid(sf_df, col = "Cluster_GMM", hue = "Cluster_GMM", palette = "coolwarm", sharey=False, sharex=False)
+    g.map(sns.histplot,i)
+    g.set_xticklabels(rotation=30)
+    g.set_yticklabels()
+    g.fig.set_figheight(5)
+    g.fig.set_figwidth(20)
+
+
+Observations
+There are 8 different clusters, which is difficult to describe, but we could see clear difference in their basic information, family condition and consumption power ...
+
+#Plotting countplot of clusters
+pl = sns.countplot(x=sf_df["Cluster"])
+pl.set_title("Distribution Of The Clusters")
+plt.show()
+
+#Creating a feature to get a sum of accepted promotions
+sf_df["TotalAcceptedCmp"] = sf_df["AcceptedCmp1"]+ sf_df["AcceptedCmp2"]+ sf_df["AcceptedCmp3"]+ sf_df["AcceptedCmp4"]+ sf_df["AcceptedCmp5"]
+#Plotting count of total campaign accepted.
+plt.figure()
+pl = sns.countplot(x=sf_df["TotalAcceptedCmp"],hue=sf_df["Cluster"])
+pl.set_title("Count Of Promotion Accepted")
+pl.set_xlabel("Number Of Total Accepted Promotions")
+plt.show()
+
+#Plotting the number of deals purchased
+plt.figure()
+pl=sns.boxenplot(y=df["NumDealsPurchases"],x=sf_df["Cluster"])
+pl.set_title("Number of Deals Purchased")
+plt.show()
+
+fig = plt.figure(figsize = (13, 4))
+palette = ['#dd4124', '#009473', '#b4b4b4', '#336b87']
+plt.title('Which clients take part in the promotions the most?', size = 25, x = 0.47, y = 1.1)
+a = sns.barplot(data = sf_df.groupby(['Cluster']).agg({'TotalAcceptedCmp': 'sum'}).reset_index(),
+                x = 'TotalAcceptedCmp', y = 'Cluster', palette = palette, linestyle = "-", linewidth = 1, edgecolor = "black")
+plt.xticks([])
+plt.yticks(fontname = 'monospace', size = 16, color = 'black')
+plt.xlabel('')
+plt.ylabel('')
+
+for p in a.patches:
+    width = p.get_width()
+    plt.text(23 + width, p.get_y() + 0.55*p.get_height(), f'{round((width / 1001) * 100, 1)}%',
+             ha = 'center', va = 'center', fontname = 'monospace', fontsize = 16, color = 'black')
+
+for j in ['right', 'top', 'bottom']:
+    a.spines[j].set_visible(False)
+a.spines['left'].set_linewidth(1.5)
+
+plt.show()
+
+pd.options.display.float_format = "{:.0f}".format
+summary = sf_df[['Income','Expenses','Cluster']]
+summary.set_index("Cluster", inplace = True)
+summary=summary.groupby('Cluster').describe().transpose()
+summary
+
+ax = sns.scatterplot(x = sf_df.Income,
+               y = sf_df.Expenses,
+               hue = sf_df.Cluster,
+               palette = "muted")
+
+ax.set_xlabel("Income [USD $]", fontsize = 20, labelpad = 20)
+ax.set_ylabel("Amount Spent [USD $]", fontsize = 20, labelpad = 20)
+
+sf_df_Expenses= sf_df.groupby('Cluster')[['Wines', 'Fruits','Meat',
+                                                  'Fish', 'Sweets', 'Gold']].sum()
+
+plt.figure(figsize=(30,15))
+sf_df_Expenses.plot(kind='bar', stacked=True)
+
+plt.title('Spending Habits by Cluster')
+plt.xlabel('Cluster', fontsize=20, labelpad=20)
+plt.ylabel('Expenses', fontsize=20, labelpad=20);
+plt.xticks(rotation=0, ha='center');
+
+Customers from all the segments have spent most of their money on Wine and Meat products
+
+sf_df_purchases = sf_df.groupby('Cluster')[['NumDealsPurchases', 'NumWebPurchases', 'NumCatalogPurchases',
+                                                  'NumStorePurchases', 'NumWebVisitsMonth']].sum()
+
+plt.figure(figsize=(30,15))
+sf_df_purchases.plot(kind='bar', color=['black', 'red', 'green', 'coral', 'cyan'])
+
+plt.title('Purchasing Habits by Cluster')
+plt.xlabel('Clusters', fontsize=20, labelpad=20)
+plt.ylabel('Purchases', fontsize=20, labelpad=20);
+plt.xticks(rotation=0, ha='center');
+
+Insights:
+
+1 and 5 Customers mostly likely to do store purchasing
+Most of the web and catalog purchases are also done by the customers from 1 and 5 segments
+1 and 5 categories also like to buy from the stores
+Deal purchases are common among the Gold and Silver customers
+2 category customers made the most number of web visits while customers from 3 segment have least web visits
+
+sf_df_campaign = sf_df.groupby('Cluster')[['AcceptedCmp1', 'AcceptedCmp2', 'AcceptedCmp3', 'AcceptedCmp4',
+                                                  'AcceptedCmp5', 'Response']].sum()
+
+plt.figure(figsize=(30,15))
+sf_df_campaign.plot(kind='bar', color=['tomato', 'salmon', 'green', 'coral', 'cyan', 'orange'])
+
+plt.title('Promotions Acceptance by Cluster')
+plt.xlabel('Clusters', fontsize=20, labelpad=20)
+plt.ylabel('Promotion Counts', fontsize=20, labelpad=20);
+plt.xticks(rotation=0, ha='center');
+
+ cluster 4 accepted the most of the offers from the comapany
+Compaign 1, 5 and 1 seems to be the most successful one's
+cluster 5 showed the least interest in the promotion campaings of the company
+
+ax = sns.barplot(x = sf_df.Cluster, y = sf_df.NumWebVisitsMonth, palette = "muted")
+ax.set_ylabel("Number of Website Visits", labelpad = 20)
+ax.set_xlabel(None)
+ax.set_title("Average Website Visits in the Last Month by Cluster")
+
+Interesting enough, the groups that make up the most website visits are the groups that spend the least.
+
+temp = sf_df.loc[:, ["Wines", "Fruits", "Meat", "Sweets", "Cluster"]]
+temp = temp.groupby("Cluster").sum()
+temp.head()
+
+Seems like customers spend the most money on Wine. Lets investigate this product category further.
+
+sns.set_theme(style="whitegrid")
+pal = ["#2E003E", "#3D1E6D", "#8874A3", "#D5CEE1"]
+
+plt.figure(figsize=(12, 8))
+sns.barplot(x=sf_df["Cluster"], y=sf_df["Income"], palette=pal)
+plt.title("Income vs Cluster", size=15)
+plt.show()
+
+Observations:
+
+The cluster which has the highest income is Cluster 0
+Income of Cluster 1 is relatively lower than incomes of other clusters
+
+plt.figure(figsize=(12, 8))
+sns.boxenplot(x=sf_df["Cluster"], y=sf_df["Expenses"], palette=pal)
+plt.title("Money Spent vs Clusters", size=15)
+plt.show()
+
+Observations:
+
+Cluster 0 and 5 are spending the least money
+Cluster 2 is the cluster that spends the most money among other clusters
+
+plt.figure(figsize=(12, 8))
+sns.boxplot(x=sf_df["Cluster"], y=sf_df["NumTotalPurchases"], palette=pal)
+plt.title("Purchase Number vs Cluster", size=15)
+plt.show()
+
+Observations:
+
+Cluster 0 has the highest purchase number
+Cluster 3,4 does the least shopping
+
+plt.figure(figsize=(12, 8))
+sns.barplot(x=sf_df["Cluster"], y=sf_df["Kids"], palette=pal)
+plt.title("Kids Number vs Cluster", size=15)
+plt.show()
+
+
+Observations:
+
+Cluster 2 has nearly no child
+Cluster 4 has the most children among other clusters
+
+plt.figure(figsize=(12, 8))
+sns.violinplot(x=sf_df["Cluster"], y=sf_df["TotalAcceptedCmp"], palette=pal)
+plt.title("Number of Purchase with Discount vs Clusters", size=15)
+plt.show()
+
+Observations:
+
+Cluster 0 has the highest number of purchase with discount
+
+Conclusion¶
+
+Cluster 1
+Is least-earner
+
+Cluster 3
+Has a tendecy to spend less money
+
+Cluster 3,4
+Has least purchase number (shop-hater)
+
+Cluster 0
+Has the highest income
+
+Cluster 0
+Spends the most money
+
+Cluster 0
+Has the highest purchase number (shop-lover)
+
+Cluster 2
+Has the least number of children
+
+Cluster 1,3,6,7
+Is the one that benefits least from discounts
+
+Cluster 4:
+Has most children
+
+Cluster 0
+Is the cluster that shops most when there is a discount
+
+Marketing Suggestions¶
+Cluster 3 spends the least money  So, you should gather the information about the its location and know the reason behind this.
+
+Cluster 3 has the least purchase number and  benefits least from discounts. So, you should gather the information about the its location and increase the discount rates at shops located at those locations.
+
+Cluster 0 is the highest earner ,spends the most money and has an numbber average of children
+
+Cluster 4 has  the  second highest income and most children. It can also be observed that they shave the least  purchase number . Meaning that you need to consider discounting. In addition to that, if you make the discounts with a slogan like "Make Your Child Happy" in shops at those locations where these people live, because it could remind them that they are parents, it would possibly increase the number of sales.
+
+Cluster 0 has the highest purchase number(shop lover) and it is the highest shopping cluster when there is discount.Shops discount policy should be implemented on other shops in the remaining clusters
+
+**BIRCH**
+
+# Instantiate the clustering model and visualizer
+model = KMeans(init = 'k-means++')
+k_lst = []
+
+# perform K-means 4 times(different intial clusters)
+plt.figure(figsize=(15,10))
+plt.subplot(221)
+visualizer = KElbowVisualizer(model, k=(2,15), metric='distortion')
+visualizer.fit(PCA_ds)        # Fit the data to the visualizer
+visualizer.finalize()
+k_lst.append(visualizer.elbow_value_)
+
+plt.subplot(222)
+visualizer = KElbowVisualizer(model, k=(2,15), metric='distortion')
+visualizer.fit(PCA_ds)        # Fit the data to the visualizer
+visualizer.finalize()
+k_lst.append(visualizer.elbow_value_)
+
+plt.subplot(223)
+visualizer = KElbowVisualizer(model, k=(2,15), metric='distortion')
+visualizer.fit(PCA_ds)        # Fit the data to the visualizer
+visualizer.finalize()
+k_lst.append(visualizer.elbow_value_)
+
+plt.subplot(224)
+visualizer = KElbowVisualizer(model, k=(2,15), metric='distortion')
+visualizer.fit(PCA_ds)        # Fit the data to the visualizer
+visualizer.finalize()
+k_lst.append(visualizer.elbow_value_)
+
+print('Mean K: ', np.mean(k_lst))
+
+from sklearn.cluster import Birch
+#Initiating the Birch Clustering model
+BP = Birch(threshold=0.01, n_clusters=4)
+# fit model and predict clusters
+BP_df = BP.fit_predict(PCA_ds)
+PCA_ds["Clusters"] = BP_df
+#Adding the Clusters feature to the orignal dataframe.
+sf_df["Clusters"] = BP_df
+
+#Plotting the clusters
+fig = plt.figure(figsize=(10,8))
+ax = plt.subplot(111, projection='3d', label="bla")
+ax.scatter(x, y, z, s=40, c=PCA_ds["Clusters"], marker='o', cmap = 'viridis' )
+ax.set_title("The Plot Of The Clusters")
+plt.show()
+
+#Plotting countplot of clusters
+pl = sns.countplot(x=sf_df["Clusters"])
+pl.set_title("Distribution Of The Clusters")
+plt.show()
+
+pl = sns.scatterplot(data = sf_df,x=sf_df["Expenses"], y=df["Income"],hue=sf_df["Clusters"])
+pl.set_title("Cluster's Profile Based On Income And Spending")
+plt.legend()
+plt.show()
+
+#Plotting the number of deals purchased
+plt.figure()
+pl=sns.boxenplot(y=sf_df["NumDealsPurchases"],x=sf_df["Clusters"])
+pl.set_title("Number of Deals Purchased")
+plt.show()
+
+**Mini-Batch K-Means**
+
+from sklearn.cluster import MiniBatchKMeans
+#Initiating the MiniBatchKMeans Clustering model
+MP = MiniBatchKMeans(n_clusters=4)
+# fit model and predict clusters
+MP_df = MP.fit_predict(PCA_ds)
+PCA_ds["Clusters"] = MP_df
+#Adding the Clusters feature to the orignal dataframe.
+sf_df["Clusters"]= MP_df
+
+#Plotting countplot of clusters
+pl = sns.countplot(x=sf_df["Clusters"])
+pl.set_title("Distribution Of The Clusters")
+plt.show()
+
+pl = sns.scatterplot(data = sf_df,x=sf_df["Expenses"], y=sf_df["Income"],hue=sf_df["Clusters"])
+pl.set_title("Cluster's Profile Based On Income And Spending")
+plt.legend()
+plt.show()
+
+plt.figure()
+pl=sns.swarmplot(x=sf_df["Clusters"], y=sf_df["Expenses"], color= "#CBEDDD", alpha=0.5 )
+pl=sns.boxenplot(x=sf_df["Clusters"], y=sf_df["Expenses"])
+plt.show()
+
+#Creating a feature to get a sum of accepted promotions
+sf_df["AcceptedCmp"] = sf_df["AcceptedCmp1"]+ sf_df["AcceptedCmp2"]+ sf_df["AcceptedCmp3"]+ sf_df["AcceptedCmp4"]+ sf_df["AcceptedCmp5"]
+#Plotting count of total campaign accepted.
+plt.figure()
+pl = sns.countplot(x=sf_df["AcceptedCmp"],hue=sf_df["Clusters"])
+pl.set_title("Count Of Promotion Accepted")
+pl.set_xlabel("Number Of Total Accepted Promotions")
+plt.show()
+
+#Plotting the number of deals purchased
+plt.figure()
+pl=sns.boxenplot(y=sf_df["NumDealsPurchases"],x=sf_df["Clusters"])
+pl.set_title("Number of Deals Purchased")
+plt.show()
